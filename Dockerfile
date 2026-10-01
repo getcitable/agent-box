@@ -18,7 +18,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # --dangerously-skip-permissions, which Claude Code refuses to run as root
 # ("cannot be used with root/sudo privileges", exit 1). uid 1000 is pinned
 # because /data ownership is created against it and /data outlives the image.
-RUN useradd -u 1000 -m -d /home/agent -s /bin/sh agent
+# node:22 already ships a `node` user at uid 1000, so a plain `useradd -u 1000`
+# fails with "UID 1000 is not unique" and the build exits 1. Remove it first:
+# we need uid 1000 itself, not merely some unprivileged user.
+RUN userdel -r node 2>/dev/null || true; \
+    useradd -u 1000 -m -d /home/agent -s /bin/sh agent
 
 # --- Claude Code -------------------------------------------------------------
 RUN npm install -g @anthropic-ai/claude-code \

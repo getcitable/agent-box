@@ -78,7 +78,7 @@ wrapper and entrypoint set them per process instead.
 ## Deploy
 
 ```bash
-maritime create my-box --repo https://github.com/<owner>/agent-box --branch main \
+maritime create my-box --repo https://github.com/<owner>/agent-box --branch master \
   --ram 8192 --disk 20 --idle 3600 --json
 maritime env set my-box RAFT_SERVER=/my-workspace --reload --json
 ```
