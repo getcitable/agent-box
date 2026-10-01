@@ -82,39 +82,15 @@ raft-computer setup $RAFT_SERVER --name my-box -y
 Both logins need an interactive paste-back, so they cannot be scripted. After
 that the entrypoint keeps the Computer up on its own.
 
-## Residency: do not reach for a keepalive cron
-
-Raft queues messages through outages and delivers them on reconnect, but nothing
-on Raft's side can wake a sleeping Maritime VM. The obvious fix is a one-minute
-cron to hold the box awake:
+Keep the box reachable — Raft queues messages through outages and delivers on
+reconnect, but nothing on Raft's side can wake a sleeping Maritime VM:
 
 ```bash
-maritime triggers create my-box --type cron --cron "* * * * *" --json   # ← expensive
+maritime triggers create my-box --type cron --cron "* * * * *" --json
 ```
 
-**Don't.** Maritime meters and bills compute per awake-second, so this is the
-most expensive configuration available, not the cheapest — it defeats auto-sleep
-entirely. Measured 2026-10-01: a box under this cron ran at a 0.99
-compute-to-wall ratio, i.e. billed continuously, and $482.72 of compute accrued
-across two boxes in about a day and a half.
-
-"No cap on compute minutes" means no *limit*, not no *charge*.
-
-Two fields are easy to conflate: `tier` is the **billing** tier, while
-`sleepPolicy` / `idleTtlSeconds` is the **behaviour**. A box can bill on
-`always_on` and still fall asleep, so observing it sleep proves nothing about
-what it costs.
-
-Prefer the flat always-on add-on when a box genuinely must be reachable — a
-fixed fee is both cheaper and more predictable than defeating sleep. Otherwise
-accept the wake latency and let it sleep. There is no billing API (`/v1/usage`,
-`/v1/billing/*` all 404), so get the per-core-hour rate from Maritime before
-sizing anything.
-
-```bash
-maritime status my-box --json | python3 -c "import json,sys;d=json.load(sys.stdin);print(d['tier'],d['sleepPolicy'],d['totalComputeSeconds'])"
-maritime triggers list my-box --json
-```
+A prompt-less cron fire wakes the VM with no model call, so this costs only the
+machine slot.
 
 ## Notes from building this
 
