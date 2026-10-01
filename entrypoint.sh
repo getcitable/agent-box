@@ -8,7 +8,8 @@
 #   1. prepare the runtime volume (/data is the only persistent path)
 #   2. rebuild the ephemeral half (user record, wrapper)
 #   3. start and supervise the Raft Computer
-#   4. run MONITOR_CMD on an interval, if one is configured
+#   4. supervise NOTIFY_CMD, a long-lived poller (e.g. a chat approval bridge)
+#   5. run MONITOR_CMD on an interval, if one is configured
 #
 # First boot has no credentials — they need interactive logins — so the box comes
 # up idle and says what to do rather than crash-looping.
@@ -20,6 +21,7 @@ SLOCK_RUN="$HOME_DIR/.slock/computer/run"
 BOXPATH="$HOME_DIR/.local/bin:/data/.local/bin:/usr/local/bin:/usr/bin:/bin"
 EVERY_H="${MONITOR_EVERY_H:-24}"
 STAMP="$HOME_DIR/local/monitor.stamp"
+NOTIFY_PIDFILE="$HOME_DIR/local/notify.pid"
 
 log() { echo "[box] $*"; }
 as_agent() { su agent -s /bin/sh -c "export HOME=$HOME_DIR; export AGENT_HOME=$HOME_DIR; export PATH=$BOXPATH; $1"; }
@@ -53,7 +55,26 @@ start_computer() {
 }
 computer_running() { as_agent "raft-computer status" 2>/dev/null | grep -qi "^Service:.*running"; }
 
-# --- 4: interval work ---------------------------------------------------------
+# --- 4: the long-lived poller -------------------------------------------------
+# Chat approval bridges need exactly one process holding the poll. Telegram's
+# getUpdates is exclusive and stateful: with nothing polling, presses queue
+# silently and the next short-lived poller consumes a stale one as the answer to
+# a different question. That is why this belongs to PID 1 and not to a run.
+notify_running() {
+    [ -f "$NOTIFY_PIDFILE" ] || return 1
+    kill -0 "$(cat "$NOTIFY_PIDFILE" 2>/dev/null)" 2>/dev/null
+}
+
+start_notify() {
+    [ -n "${NOTIFY_CMD:-}" ] || return 0
+    notify_running && return 0
+    log "starting NOTIFY_CMD"
+    su agent -s /bin/sh -c "export HOME=$HOME_DIR; export PATH=$BOXPATH; cd $HOME_DIR && exec $NOTIFY_CMD" \
+        >> "$HOME_DIR/local/notify.log" 2>&1 &
+    echo $! > "$NOTIFY_PIDFILE"
+}
+
+# --- 5: interval work ---------------------------------------------------------
 # Elapsed-time check rather than a long sleep: when the VM sleeps the process is
 # frozen, so sleep durations understate wall-clock.
 maybe_monitor() {
@@ -78,6 +99,7 @@ while true; do
     elif [ "$FIRST" = 1 ]; then
         log "idle: waiting on credentials and RAFT_SERVER (box is otherwise ready)"
     fi
+    start_notify
     maybe_monitor
     FIRST=0
     sleep 300

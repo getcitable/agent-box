@@ -47,9 +47,11 @@ RUN chmod 0755 /usr/local/bin/entrypoint.sh
 # Set per agent with `maritime env set <agent> ... --reload`:
 #   AGENT_HOME   where state lives on the volume      (default /data/agent)
 #   RAFT_SERVER  workspace slug, e.g. /my-workspace
+#   NOTIFY_CMD   optional: a long-lived poller the supervisor keeps alive
 #   MONITOR_CMD  optional: a command the supervisor runs on MONITOR_EVERY_H
 ENV AGENT_HOME=/data/agent \
     RAFT_SERVER="" \
+    NOTIFY_CMD="" \
     MONITOR_CMD="" \
     MONITOR_EVERY_H=24
 

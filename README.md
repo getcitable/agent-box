@@ -29,7 +29,20 @@ if it was built by hand.
 | `@anthropic-ai/claude-code` | the agent runtime |
 | `raft-computer` | connects the box to a Raft workspace |
 | unprivileged user, **uid 1000** | required — see below |
-| `entrypoint.sh` | supervises the Computer, runs interval work |
+| `entrypoint.sh` | supervises the Computer and a poller, runs interval work |
+
+## Why a poller has to live here
+
+Chat approval bridges poll for the human's answer. Telegram's `getUpdates` is
+**exclusive and stateful**: one poller at a time, and presses queue until
+something drains them. A bridge that only polls while an agent is mid-run
+therefore fails twice over — presses made at any other time vanish from the
+user's point of view, and the *next* run consumes one of those stale presses as
+the answer to an unrelated question.
+
+So the poller must be a single long-lived process, which means PID 1 owns it:
+`NOTIFY_CMD`. The entrypoint restarts it if it dies and records its pid in
+`$AGENT_HOME/local/notify.pid`.
 
 ## The one non-obvious requirement
 
@@ -54,6 +67,7 @@ Set per agent with `maritime env set <agent> KEY=value --reload`:
 |---|---|---|
 | `AGENT_HOME` | `/data/agent` | where state lives on the persistent volume |
 | `RAFT_SERVER` | — | workspace slug, e.g. `/my-workspace` |
+| `NOTIFY_CMD` | — | optional long-lived poller the supervisor keeps alive |
 | `MONITOR_CMD` | — | optional command the supervisor runs on an interval |
 | `MONITOR_EVERY_H` | `24` | hours between `MONITOR_CMD` runs |
 
