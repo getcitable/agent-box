@@ -34,9 +34,22 @@ id agent >/dev/null 2>&1 || useradd -u 1000 -d "$HOME_DIR" -s /bin/sh agent
 if [ "$(stat -c %u "$HOME_DIR" 2>/dev/null)" != "1000" ]; then
     chown -R agent:agent "$HOME_DIR" 2>/dev/null || true
 fi
-# Link skills from the volume so a push updates them without a rebuild.
-[ -d "$HOME_DIR/skills" ] && { rm -rf "$HOME_DIR/.claude/skills"; ln -s "$HOME_DIR/skills" "$HOME_DIR/.claude/skills"; }
-chown -h agent:agent "$HOME_DIR/.claude/skills" 2>/dev/null || true
+# Skills are NOT linked globally. A symlink here puts every skill in front of
+# every agent on the box, which silently defeats whatever the roster says each
+# agent is allowed to do: a reviewer ends up holding a writing skill, a writer
+# ends up able to grade its own work. Prompts cannot undo that — the agent can
+# see the skill, so it can use it.
+#
+# Skills belong in each agent's own working directory:
+#   <home>/.slock/agents/<id>/.claude/skills/<only-what-that-agent-may-use>
+#
+# Deployment places them per agent; nothing here should widen that. If an old
+# box carries the global link from a previous image, remove it rather than
+# leaving a boundary that exists in the roster and not on disk.
+if [ -L "$HOME_DIR/.claude/skills" ]; then
+    rm -f "$HOME_DIR/.claude/skills"
+    log "removed the global skills symlink — skills are scoped per agent"
+fi
 
 have_claude() { [ -f "$HOME_DIR/.claude/.credentials.json" ]; }
 have_raft()   { [ -f "$HOME_DIR/.slock/computer/user-session.json" ]; }
@@ -44,6 +57,27 @@ have_raft()   { [ -f "$HOME_DIR/.slock/computer/user-session.json" ]; }
 have_claude || log "Claude Code NOT authenticated — in the console: su agent -s /bin/sh; export HOME=$HOME_DIR; claude auth login"
 have_raft   || log "Raft NOT logged in — as agent: raft-computer login && raft-computer setup \$RAFT_SERVER -y"
 [ -n "$RAFT_SERVER" ] || log "RAFT_SERVER unset — maritime env set <agent> RAFT_SERVER=/your-workspace --reload"
+
+# --- 2b: register a product MCP, if a key is configured -----------------------
+# CITABLE_MCP_KEY is the brand-locked key for the Citable platform MCP. Without
+# this block every box needs the registration done by hand, which is invisible
+# until an agent answers a question with no data and nobody knows why.
+#
+# --scope user is load-bearing. Registered at project scope, the server attaches
+# to the directory the command ran in — so `claude mcp list` reports "Connected"
+# from a shell while the agents, which run in their own working directories, have
+# no tools at all. It looks correct from outside and is broken where it matters.
+if [ -n "$CITABLE_MCP_KEY" ] && have_claude; then
+    if ! as_agent "claude mcp list" 2>/dev/null | grep -q "^citable:"; then
+        as_agent "claude mcp add --scope user --transport http citable \
+            https://app.getcitable.com/mcp/v1 \
+            --header \"Authorization: Bearer $CITABLE_MCP_KEY\"" >/dev/null 2>&1 \
+            && log "registered the citable MCP (user scope)" \
+            || log "citable MCP registration FAILED — check CITABLE_MCP_KEY"
+    fi
+elif [ -z "$CITABLE_MCP_KEY" ]; then
+    log "CITABLE_MCP_KEY unset — the Citable MCP will not be available to agents"
+fi
 
 # --- 3: supervise the Computer ------------------------------------------------
 # Stale pid/sock survive a restart and make raft-computer report a dead service
