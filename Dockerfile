@@ -58,6 +58,17 @@ RUN HOME=/opt/raft sh -c 'curl -fsSL https://cdn.raft.build/computer/install.sh 
 #
 # All three survive a reboot. This cost two debugging sessions on two boxes, so
 # the fix belongs in the image rather than in anyone's memory.
+#
+# A fourth failure, found 2026-10-11: the non-root branch below used to read
+# 'export HOME=${HOME:-$AGENT_HOME_DIR}', which only falls back to AGENT_HOME
+# when HOME is *unset*. Run as the agent user, HOME is already /home/agent from
+# /etc/passwd, so AGENT_HOME was ignored and raft-computer resolved SLOCK_HOME
+# to /home/agent/.slock. On citable-studio-box that made `raft-computer status`
+# report "Service: stopped / Logged in: no / Attachments: none" while the daemon
+# was running, all four agents were active and messages were flowing — three
+# false alarms at once, on the box whose whole job is telling you the truth
+# about itself. AGENT_HOME is explicit configuration and must beat the passwd
+# home, so it is assigned unconditionally.
 RUN printf '%s\n' \
     '#!/bin/sh' \
     'REAL=/opt/raft/.local/bin/raft-computer' \
@@ -66,7 +77,7 @@ RUN printf '%s\n' \
     '    echo "raft-computer: running as the agent user, not root." >&2' \
     '    exec su agent -s /bin/sh -c "HOME=$AGENT_HOME_DIR $REAL $*"' \
     'fi' \
-    'export HOME=${HOME:-$AGENT_HOME_DIR}' \
+    'export HOME=$AGENT_HOME_DIR' \
     'exec "$REAL" "$@"' \
     > /usr/local/bin/raft-computer \
     && chmod 0755 /usr/local/bin/raft-computer
