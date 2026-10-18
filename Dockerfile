@@ -83,13 +83,16 @@ RUN printf '%s\n' \
     && chmod 0755 /usr/local/bin/raft-computer
 
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod 0755 /usr/local/bin/entrypoint.sh
+COPY box-auth.sh /usr/local/lib/box-auth.sh
+RUN chmod 0755 /usr/local/bin/entrypoint.sh && chmod 0644 /usr/local/lib/box-auth.sh
 
 # Set per agent with `maritime env set <agent> ... --reload`:
 #   AGENT_HOME   where state lives on the volume      (default /data/agent)
 #   RAFT_SERVER  workspace slug, e.g. /my-workspace
 #   NOTIFY_CMD   optional: a long-lived poller the supervisor keeps alive
 #   MONITOR_CMD  optional: a command the supervisor runs on MONITOR_EVERY_H
+#   AUTH_MODE    login (default: our boxes) or api_key (client boxes, CIT-1496)
+#   ANTHROPIC_API_KEY  api_key mode only: from the client's capped Console workspace
 ENV AGENT_HOME=/data/agent \
     RAFT_SERVER="" \
     NOTIFY_CMD="" \
