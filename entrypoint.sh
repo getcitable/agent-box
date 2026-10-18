@@ -16,6 +16,28 @@
 
 set -u
 
+# The box's optional inputs, declared once.
+#
+# `set -u` above makes a bare $VAR expansion fatal when the variable is unset —
+# and PID 1 exiting takes the VM down with it. That is not theoretical: three
+# attempts to create `client-maritime-box` on 2026-10-16 died here with
+#
+#     entrypoint.sh: 70: CITABLE_MCP_KEY: parameter not set
+#
+# and Maritime's readiness check reported the only thing it could see,
+# `guest_command_unavailable`, which points at their infrastructure rather than
+# at this line. It cost a support round trip to find.
+#
+# The cruel part is that the code below already handles both of these being
+# absent — `[ -n "$RAFT_SERVER" ] || log "RAFT_SERVER unset ..."` exists purely
+# for that case. `set -u` kills the script at the expansion *before* the test
+# runs, so the missing-variable branch is unreachable exactly when it is needed.
+#
+# Assigning here with := keeps `set -u` protecting every genuine typo while
+# letting these two be legitimately empty.
+: "${CITABLE_MCP_KEY:=}"
+: "${RAFT_SERVER:=}"
+
 HOME_DIR="${AGENT_HOME:-/data/agent}"
 SLOCK_RUN="$HOME_DIR/.slock/computer/run"
 BOXPATH="$HOME_DIR/.local/bin:/data/.local/bin:/usr/local/bin:/usr/bin:/bin"
