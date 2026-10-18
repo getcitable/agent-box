@@ -26,4 +26,17 @@ check "api_key + key counts as authenticated"    "$(run api_key sk-test none 'ha
 
 check "blocker message never holds the key"      "$(run api_key sk-secret-123 login auth_blocker | grep -c sk-secret-123)" 0
 
+# auth_gate against a stub supervisor: a login that appears while the Computer
+# runs stops it on the next pass, and the blocker is logged once per change.
+gate() { run "$1" "$2" "$3" 'log() { echo "log:$*" >> "$HOME_DIR/out"; }
+    computer_running() { [ -f "$HOME_DIR/up" ]; }
+    stop_computer() { rm -f "$HOME_DIR/up"; echo stopped >> "$HOME_DIR/out"; }
+    : > "$HOME_DIR/out"; : > "$HOME_DIR/up"; '"$4"'; cat "$HOME_DIR/out"'; }
+out=$(gate api_key sk-test none 'auth_gate; : > "$HOME_DIR/.claude/.credentials.json"; auth_gate; auth_gate; [ -f "$HOME_DIR/up" ] || echo down >> "$HOME_DIR/out"')
+check "gate: a login appearing stops the Computer"  "$(echo "$out" | grep -c '^stopped$')" 1
+check "gate: blocker logged once across passes"      "$(echo "$out" | grep -c '^log:NOT running')" 1
+check "gate: Computer is down afterwards"            "$(echo "$out" | tail -1)" down
+check "gate: key-only box passes, logs nothing"      "$(gate api_key sk-test none 'auth_gate && echo pass >> "$HOME_DIR/out"')" pass
+check "gate: login box is never stopped"             "$(gate login '' none 'auth_gate && auth_gate && echo pass >> "$HOME_DIR/out"')" pass
+
 [ "$fails" = 0 ] && echo "all passed" || { echo "$fails failed"; exit 1; }

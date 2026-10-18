@@ -93,16 +93,16 @@ have_raft   || log "Raft NOT logged in — as agent: raft-computer login && raft
 # to the directory the command ran in — so `claude mcp list` reports "Connected"
 # from a shell while the agents, which run in their own working directories, have
 # no tools at all. It looks correct from outside and is broken where it matters.
-# The key is expanded inside the agent's shell (\$CITABLE_MCP_KEY), not in
-# this -c string, so it is not in su's or sh's argv (CIT-1496). `claude mcp
-# add` itself still takes it as an argument for the moment it runs, and stores
-# it in the agent's own ~/.claude.json: inherent to Claude Code, and the key is
-# brand-locked (architect).
+# The header is registered as the literal text ${CITABLE_MCP_KEY}: Claude Code
+# expands it from the environment when it connects (checked: the server received
+# the value, the config held only the reference). So the key is in no argv and
+# not in ~/.claude.json; the runners get it from the environment (CIT-1496).
+# A box registered before this keeps its stored key until `claude mcp remove`.
 if [ -n "$CITABLE_MCP_KEY" ] && have_claude; then
     if ! as_agent "claude mcp list" 2>/dev/null | grep -q "^citable:"; then
         as_agent "claude mcp add --scope user --transport http citable \
             https://app.getcitable.com/mcp/v1 \
-            --header \"Authorization: Bearer \$CITABLE_MCP_KEY\"" >/dev/null 2>&1 \
+            --header 'Authorization: Bearer \${CITABLE_MCP_KEY}'" >/dev/null 2>&1 \
             && log "registered the citable MCP (user scope)" \
             || log "citable MCP registration FAILED — check CITABLE_MCP_KEY"
     fi
@@ -118,6 +118,7 @@ start_computer() {
     log "starting Raft Computer for $RAFT_SERVER"
     as_agent "raft-computer start $RAFT_SERVER" 2>&1 | sed 's/^/[raft] /'
 }
+stop_computer() { as_agent "raft-computer stop" 2>&1 | sed 's/^/[raft] /'; }
 computer_running() { as_agent "raft-computer status" 2>/dev/null | grep -qi "^Service:.*running"; }
 
 # --- 4: the long-lived poller -------------------------------------------------
@@ -159,14 +160,11 @@ log "ready · claude=$(/usr/local/bin/claude-real --version 2>/dev/null || echo 
 
 FIRST=1
 while true; do
-    blocker=$(auth_blocker)
-    if [ -n "$blocker" ]; then
-        # Fail closed: a client box runs no agents without its key, and never
-        # while it also holds a login.
-        [ "$FIRST" = 1 ] && log "NOT starting the Raft Computer: $blocker"
-    elif [ -n "$RAFT_SERVER" ] && have_raft; then
+    # Fail closed: a client box runs no agents without its key, and never while
+    # it also holds a login (box-auth.sh).
+    if auth_gate && [ -n "$RAFT_SERVER" ] && have_raft; then
         computer_running || { [ "$FIRST" = 1 ] || log "Computer down — restarting"; start_computer; check_key_handoff; }
-    elif [ "$FIRST" = 1 ]; then
+    elif [ "$FIRST" = 1 ] && [ -z "$AUTH_LAST" ]; then
         log "idle: waiting on credentials and RAFT_SERVER (box is otherwise ready)"
     fi
     start_notify

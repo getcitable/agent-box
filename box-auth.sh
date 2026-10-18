@@ -42,9 +42,25 @@ auth_blocker() {
     esac
 }
 
-# api_key mode: does the running Raft Computer carry the key, and is the key in
-# no process's argv? One line each way, never the value. printf is a shell
-# builtin and grep reads the pattern from stdin, so the check adds no argv copy.
+# Run every supervisor pass. Returns 0 when the agents may run. Otherwise logs
+# the blocker when it changes and stops a Computer that is already up: a login
+# created on the console later must not leave agents running beside it.
+# Expects log, computer_running and stop_computer from the entrypoint.
+AUTH_LAST=
+auth_gate() {
+    blocker=$(auth_blocker)
+    if [ "$blocker" != "$AUTH_LAST" ]; then
+        if [ -n "$blocker" ]; then log "NOT running the Raft Computer: $blocker"; else log "auth OK: the Raft Computer may start"; fi
+        AUTH_LAST=$blocker
+    fi
+    [ -n "$blocker" ] || return 0
+    computer_running && { log "stopping the Raft Computer and its agents"; stop_computer; }
+    return 1
+}
+
+# api_key mode: does the running Raft Computer carry the keys, and is neither
+# key in any process's argv? Names only, never values. printf is a shell
+# builtin and grep reads the patterns from stdin, so the check adds no argv copy.
 check_key_handoff() {
     [ "$AUTH_MODE" = "api_key" ] && [ -n "$ANTHROPIC_API_KEY" ] || return 0
     # `raft-computer start` daemonizes; give the service a moment to appear.
@@ -53,14 +69,17 @@ check_key_handoff() {
         [ -n "$pid" ] && break
         sleep 2
     done
-    if [ -n "$pid" ] && tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^ANTHROPIC_API_KEY=.'; then
-        log "api_key: the Raft Computer (pid $pid) has ANTHROPIC_API_KEY"
+    for var in ANTHROPIC_API_KEY CITABLE_MCP_KEY; do
+        eval "[ -n \"\${$var:-}\" ]" || continue
+        if [ -n "$pid" ] && tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q "^$var=."; then
+            log "api_key: the Raft Computer (pid $pid) has $var"
+        else
+            log "api_key: WARNING the Raft Computer does not have $var"
+        fi
+    done
+    if printf '%s\n' "$ANTHROPIC_API_KEY" ${CITABLE_MCP_KEY:+"$CITABLE_MCP_KEY"} | grep -lFf - /proc/[0-9]*/cmdline 2>/dev/null | grep -q .; then
+        log "api_key: WARNING a key appears in a process command line"
     else
-        log "api_key: WARNING the Raft Computer does not have ANTHROPIC_API_KEY — agents will not authenticate"
-    fi
-    if printf '%s\n' "$ANTHROPIC_API_KEY" | grep -lFf - /proc/[0-9]*/cmdline 2>/dev/null | grep -q .; then
-        log "api_key: WARNING the key appears in a process command line"
-    else
-        log "api_key: the key is in no process command line"
+        log "api_key: neither key is in any process command line"
     fi
 }
