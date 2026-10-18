@@ -39,7 +39,6 @@ set -u
 : "${RAFT_SERVER:=}"
 
 HOME_DIR="${AGENT_HOME:-/data/agent}"
-SLOCK_RUN="$HOME_DIR/.slock/computer/run"
 BOXPATH="$HOME_DIR/.local/bin:/data/.local/bin:/usr/local/bin:/usr/bin:/bin"
 EVERY_H="${MONITOR_EVERY_H:-24}"
 STAMP="$HOME_DIR/local/monitor.stamp"
@@ -77,7 +76,14 @@ if [ -L "$HOME_DIR/.claude/skills" ]; then
     log "removed the global skills symlink — skills are scoped per agent"
 fi
 
-have_raft()   { [ -f "$HOME_DIR/.slock/computer/user-session.json" ]; }
+# Where raft-computer keeps its state. A fresh install uses <home>/.raft; a box
+# set up under an older CLI keeps <home>/.slock. Ask the CLI instead of
+# guessing: on client-maritime-box (Oct 18) a hardcoded .slock meant a logged-in
+# box read as logged out, so the Computer was never started or restarted.
+RAFT_STATE=$(as_agent "raft-computer status" 2>/dev/null | sed -n 's/^SLOCK_HOME: *//p' | head -1)
+: "${RAFT_STATE:=$HOME_DIR/.slock}"
+SLOCK_RUN="$RAFT_STATE/computer/run"
+have_raft()   { [ -f "$RAFT_STATE/computer/user-session.json" ]; }
 
 log "auth mode: $AUTH_MODE"
 have_claude || [ "$AUTH_MODE" != login ] || log "Claude Code NOT authenticated — in the console: su agent -s /bin/sh; export HOME=$HOME_DIR; claude auth login"
