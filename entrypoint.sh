@@ -104,17 +104,45 @@ have_raft   || log "Raft NOT logged in — as agent: raft-computer login && raft
 # the value, the config held only the reference). So the key is in no argv and
 # not in ~/.claude.json; the runners get it from the environment (CIT-1496).
 # A box registered before this keeps its stored key until `claude mcp remove`.
-if [ -n "$CITABLE_MCP_KEY" ] && have_claude; then
-    if ! as_agent "claude mcp list" 2>/dev/null | grep -q "^citable:"; then
-        as_agent "claude mcp add --scope user --transport http citable \
-            https://app.getcitable.com/mcp/v1 \
-            --header 'Authorization: Bearer \${CITABLE_MCP_KEY}'" >/dev/null 2>&1 \
-            && log "registered the citable MCP (user scope)" \
-            || log "citable MCP registration FAILED — check CITABLE_MCP_KEY"
-    fi
-elif [ -z "$CITABLE_MCP_KEY" ]; then
-    log "CITABLE_MCP_KEY unset — the Citable MCP will not be available to agents"
-fi
+#
+# Checked on every pass of the supervise loop, not only at boot: a Claude Code
+# auto-update can replace ~/.claude.json with a fresh-install file while the box
+# runs (2.1.318, 2026-11-05: citable-studio-box and client-citable-box lost the
+# server and nothing put it back). A missing server is re-registered within one
+# pass; a running session keeps the config it started with, so it gets the tools
+# on its next start. The check reads the file from disk and starts no `claude`
+# process, so the live sessions sharing this HOME see nothing on a normal pass;
+# `claude mcp add` runs only when the server is actually missing.
+# has_citable_mcp: 0 present, 1 missing, anything else = the check itself
+# failed. Only 1 leads to an add; a failed check (timeout, no node, a file the
+# agent doesn't own) skips the pass with a log line instead of starting
+# `claude` beside live sessions. A file that can't be parsed (caught mid-write)
+# counts as present for this pass and is read again on the next one.
+has_citable_mcp() {
+    f="$HOME_DIR/.claude.json"
+    [ -f "$f" ] || return 1
+    # Read as root, so check the agents (uid 1000) own it: a root-owned file
+    # can read "present" here while the agents get no tools.
+    owner=$(stat -c %u "$f" 2>/dev/null)
+    [ "$owner" = "1000" ] || { log "$f is owned by uid ${owner:-?}, not the agent (1000)"; return 3; }
+    timeout 10 node -e '
+        let d; try { d = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); } catch { process.exit(0); }
+        process.exit(d && d.mcpServers && d.mcpServers.citable ? 0 : 1);
+    ' "$f"
+}
+ensure_citable_mcp() {
+    [ -n "$CITABLE_MCP_KEY" ] && have_claude || return 0
+    has_citable_mcp; rc=$?
+    [ "$rc" = 0 ] && return 0
+    [ "$rc" = 1 ] || { log "citable MCP check failed (rc=$rc), skipping this pass"; return 0; }
+    # timeout: a hung add must not stall the loop that restarts a dead Computer.
+    as_agent "timeout 60 claude mcp add --scope user --transport http citable \
+        https://app.getcitable.com/mcp/v1 \
+        --header 'Authorization: Bearer \${CITABLE_MCP_KEY}'" >/dev/null 2>&1 \
+        && log "registered the citable MCP (user scope)" \
+        || log "citable MCP registration FAILED — check CITABLE_MCP_KEY"
+}
+[ -n "$CITABLE_MCP_KEY" ] || log "CITABLE_MCP_KEY unset — the Citable MCP will not be available to agents"
 
 # --- 3: supervise the Computer ------------------------------------------------
 # Stale pid/sock survive a restart and make raft-computer report a dead service
@@ -166,6 +194,9 @@ log "ready · claude=$(/usr/local/bin/claude-real --version 2>/dev/null || echo 
 
 FIRST=1
 while true; do
+    # Ahead of the Computer check: on the first pass this runs before the
+    # Computer starts, so a fresh box's first sessions already have the server.
+    ensure_citable_mcp
     # Fail closed: a client box runs no agents without its key, and never while
     # it also holds a login (box-auth.sh).
     if auth_gate && [ -n "$RAFT_SERVER" ] && have_raft; then

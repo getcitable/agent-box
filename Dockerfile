@@ -93,11 +93,16 @@ RUN chmod 0755 /usr/local/bin/entrypoint.sh && chmod 0644 /usr/local/lib/box-aut
 #   MONITOR_CMD  optional: a command the supervisor runs on MONITOR_EVERY_H
 #   AUTH_MODE    login (default: our boxes) or api_key (client boxes, CIT-1496)
 #   ANTHROPIC_API_KEY  api_key mode only: from the client's capped Console workspace
+# DISABLE_AUTOUPDATER: Claude Code changes only with an image redeploy. Its
+# self-update rewrote the image's own install and replaced ~/.claude.json on two
+# live boxes (2.1.318, 2026-11-05). Set as image ENV so every process started
+# without a login shell has it (`su - agent` drops it).
 ENV AGENT_HOME=/data/agent \
     RAFT_SERVER="" \
     NOTIFY_CMD="" \
     MONITOR_CMD="" \
-    MONITOR_EVERY_H=24
+    MONITOR_EVERY_H=24 \
+    DISABLE_AUTOUPDATER=1
 
 # Deliberately NOT setting ENV HOME: injecting HOME into a Maritime container
 # breaks `maritime exec` with a 502. The wrapper and entrypoint set it per
