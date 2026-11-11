@@ -38,6 +38,16 @@ RUN printf '%s\n' \
     > /usr/local/bin/claude \
     && chmod 0755 /usr/local/bin/claude
 
+# Box-wide deny rules (CIT-1572). A login-mode box uses a claude.ai login, so it
+# loads every claude.ai connector on that account. The account's Citable
+# connector is not limited to one brand and has write tools (publish, schedule,
+# paid ads). Raft runs agents with --dangerously-skip-permissions, so a deny rule
+# is the guard. A deny rule here applies to every agent on the box, and user or
+# project settings cannot remove it. It is root-owned, so the agent user cannot
+# edit it. The brand-locked MCP from entrypoint.sh is mcp__citable__ and stays.
+COPY managed-settings.json /etc/claude-code/managed-settings.json
+RUN chmod 0644 /etc/claude-code/managed-settings.json
+
 # --- Raft Computer -----------------------------------------------------------
 # Installed with HOME=/opt/raft so the binary lands in the image; its runtime
 # state goes under the volume instead (SLOCK_HOME follows HOME).

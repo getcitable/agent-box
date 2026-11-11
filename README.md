@@ -30,6 +30,24 @@ if it was built by hand.
 | `raft-computer` | connects the box to a Raft workspace |
 | unprivileged user, **uid 1000** | required — see below |
 | `entrypoint.sh` | supervises the Computer and a poller, runs interval work |
+| `managed-settings.json` | box-wide Claude Code deny rules, at `/etc/claude-code/` |
+
+## Box-wide deny rules
+
+Raft runs every agent with `--dangerously-skip-permissions`, so a
+`permissions.deny` rule is the guard. `managed-settings.json` holds the deny rules
+that apply to every agent on the box. Claude Code reads it above user and project
+settings, and no settings file can remove its rules. It is root-owned, so the
+agent user cannot edit it.
+
+It denies `mcp__claude_ai_Citable`: the claude.ai Citable connector. A login-mode
+box loads the claude.ai connectors of its account. That connector is not limited
+to one brand, and it has write tools. The brand-locked MCP that the entrypoint
+registers is `mcp__citable__`, and the rule does not touch it.
+
+By default, Claude Code reads only one managed source. If the account gets
+server-managed settings from the claude.ai console, Claude Code ignores this
+file. Then put the rule there too.
 
 ## Why a poller has to live here
 
