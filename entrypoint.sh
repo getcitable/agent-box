@@ -83,11 +83,16 @@ fi
 RAFT_STATE=$(as_agent "raft-computer status" 2>/dev/null | sed -n 's/^SLOCK_HOME: *//p' | head -1)
 : "${RAFT_STATE:=$HOME_DIR/.slock}"
 SLOCK_RUN="$RAFT_STATE/computer/run"
-have_raft()   { [ -f "$RAFT_STATE/computer/user-session.json" ]; }
+# "Can this box run agents" means "is it attached to a server", not "is a user
+# signed in". Raft 1.25 dropped the user sign-in and deletes user-session.json
+# on first run, so gating on that file left an attached, healthy box idle
+# after a redeploy: the Computer was never started. An attachment shows in
+# `status` as a row starting with the server slug, on 1.0.x and 1.25 alike.
+have_raft()   { as_agent "raft-computer status" 2>/dev/null | grep -q '^  /[^ ]'; }
 
 log "auth mode: $AUTH_MODE"
 have_claude || [ "$AUTH_MODE" != login ] || log "Claude Code NOT authenticated — in the console: su agent -s /bin/sh; export HOME=$HOME_DIR; claude auth login"
-have_raft   || log "Raft NOT logged in — as agent: raft-computer login && raft-computer setup \$RAFT_SERVER -y"
+have_raft   || log "Raft NOT attached — as agent: raft-computer setup \$RAFT_SERVER -y"
 [ -n "$RAFT_SERVER" ] || log "RAFT_SERVER unset — maritime env set <agent> RAFT_SERVER=/your-workspace --reload"
 
 # --- 2b: register a product MCP, if a key is configured -----------------------
