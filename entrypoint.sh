@@ -83,6 +83,14 @@ fi
 RAFT_STATE=$(as_agent "raft-computer status" 2>/dev/null | sed -n 's/^SLOCK_HOME: *//p' | head -1)
 : "${RAFT_STATE:=$HOME_DIR/.slock}"
 SLOCK_RUN="$RAFT_STATE/computer/run"
+# The entrypoint only runs in a fresh container, so no Raft process can be
+# alive yet, and any pid file on the volume is from the last one. Raft 1.25
+# trusts them if the pid happens to be reused: on the Nov 24 fleet redeploy
+# scout-box sat with its Computer down for a supervisor pass, and
+# client-maritime-box "adopted" a pid that was not a runner, so /maritime
+# showed connected while no agent could run.
+rm -f "$SLOCK_RUN/service.pid" "$SLOCK_RUN/service.sock" \
+      "$RAFT_STATE"/computer/servers/*/runner.pid 2>/dev/null || true
 # "Can this box run agents" means "is it attached to a server", not "is a user
 # signed in". Raft 1.25 dropped the user sign-in and deletes user-session.json
 # on first run, so gating on that file left an attached, healthy box idle
