@@ -41,7 +41,18 @@ RUN printf '%s\n' \
 # --- Raft Computer -----------------------------------------------------------
 # Installed with HOME=/opt/raft so the binary lands in the image; its runtime
 # state goes under the volume instead (SLOCK_HOME follows HOME).
-RUN HOME=/opt/raft sh -c 'curl -fsSL https://cdn.raft.build/computer/install.sh | sh' \
+#
+# Pinned: unpinned, the version was whatever the CDN served on build day, so
+# boxes built weeks apart ran 1.0.40 to 1.0.56 and a rebuild could be served
+# from cache with no upgrade at all. Bump this line to upgrade the fleet.
+# Upgrading in place from the Maritime console does not work: `/` is a 2 GB
+# disk with ~130 MB free, so the installer fails with "No space left on
+# device" (shown only as "Could not upgrade ... Nothing was changed"), and it
+# runs as root against /.raft, not the copy the daemon uses.
+ARG RAFT_COMPUTER_VERSION=1.25.15
+RUN HOME=/opt/raft RAFT_COMPUTER_VERSION=$RAFT_COMPUTER_VERSION \
+        sh -c 'curl -fsSL https://cdn.raft.build/computer/install.sh | sh' \
+    && [ "$(/opt/raft/.local/bin/raft-computer --version)" = "$RAFT_COMPUTER_VERSION" ] \
     && chmod -R a+rX /opt/raft
 
 # Wrapper that drops to the agent user instead of a symlink. The Maritime
